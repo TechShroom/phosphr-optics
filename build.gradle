@@ -27,6 +27,7 @@ apply plugin: 'java'
 apply plugin: 'eclipse'
 apply plugin: 'aversion-util'
 apply plugin: 'aversion-apt'
+apply plugin: 'aversion-maven'
 
 license {
     ext {
@@ -45,6 +46,11 @@ license {
 
 util {
     javaVersion = '1.8'
+}
+
+mavencfg {
+    coords 'TechShroom', 'phosphr-optics'
+    description 'QR-Code based transmission protocol.'
 }
 
 repositories {
