@@ -1,0 +1,29 @@
+syntax = "proto3";
+option java_package = "com.techshroom.protos";
+option java_multiple_files = true;
+
+// The message sent in the QR code.
+message PhosphrMessage {
+	uint32 sequence = 1;
+	oneof kind {
+		Start start = 2;
+		Data data = 3;
+		Request request = 4;
+		End end = 5;
+	}
+}
+
+message Start {
+	uint32 packetCount = 1;
+	uint32 packetSize = 2;
+}
+message End {}
+
+message Data {
+	bytes content = 1;
+}
+
+message Request {
+	// Packet numbers that the reciever doesn't have and needs to see.
+	repeated int32 missedPackets = 1;
+}

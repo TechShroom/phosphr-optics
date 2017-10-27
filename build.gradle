@@ -79,6 +79,7 @@ dependencies {
     compile group: 'com.google.protobuf', name: 'protobuf-java', version: rootProject.protobufVersion
     compile group: 'com.google.protobuf', name: 'protobuf-java-util', version: rootProject.protobufVersion
 
+	compile group: 'com.google.zxing', name: 'core', version: rootProject.zxingVersion
 
     addAPTReqWComp group: 'com.google.guava', name: 'guava', version: '23.0'
     addAPT group: 'com.google.auto.service', name: 'auto-service', version: '1.0-rc3'
