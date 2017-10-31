@@ -1,3 +1,27 @@
+/*
+ * This file is part of phosphr-optics, licensed under the MIT License (MIT).
+ *
+ * Copyright (c) TechShroom Studios <https://techshroom.com>
+ * Copyright (c) contributors
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 package com.techshroom.phosphr;
 
 import java.nio.ByteBuffer;
@@ -8,9 +32,7 @@ import java.util.Iterator;
 
 import com.google.protobuf.ByteString;
 import com.google.zxing.BinaryBitmap;
-import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
 import com.google.zxing.qrcode.encoder.ByteMatrix;
-import com.google.zxing.qrcode.encoder.Encoder;
 import com.techshroom.protos.Data;
 import com.techshroom.protos.End;
 import com.techshroom.protos.PhosphrMessage;
@@ -44,15 +66,6 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
 
     private static final int PACKET_SIZE = 2048;
 
-    private static final ByteMatrix HELLO_WORLD;
-    static {
-        try {
-            HELLO_WORLD = Encoder.encode("Hello, World!", ErrorCorrectionLevel.H).getMatrix();
-        } catch (Exception e) {
-            throw new IllegalStateException("Hello World failed to init.", e);
-        }
-    }
-
     private final ByteMatrix startImage;
     private final ByteMatrix endImage;
     private final ByteBuffer data;
@@ -77,9 +90,10 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
     }
 
     private int getPacketCount() {
-        return data.limit() / PACKET_SIZE;
+        return (data.limit() + (PACKET_SIZE - 1)) / PACKET_SIZE;
     }
 
+    @Override
     public boolean isDataSendCompleted() {
         return state == State.TERMINATED;
     }
@@ -96,7 +110,7 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
             case DISP_END:
                 return endImage;
             default:
-                return HELLO_WORLD;
+                return endImage;
         }
     }
 
@@ -104,14 +118,21 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
         int next = likelyRecv.nextClearBit(0);
         likelyRecv.set(next);
         data.position(next * PACKET_SIZE);
+        int size = Math.min(PACKET_SIZE, data.remaining());
         return MsgHelper.encode(PhosphrMessage.newBuilder()
-                .setData(Data.newBuilder().setContent(ByteString.copyFrom(data, PACKET_SIZE)))
+                .setSequence(next)
+                .setData(Data.newBuilder().setContent(ByteString.copyFrom(data, size)))
                 .build());
     }
 
     private void changeState() {
         while (!unprocessed.isEmpty()) {
-            PhosphrMessage msg = MsgHelper.decode(unprocessed.pollFirst());
+            PhosphrMessage msg;
+            try {
+                msg = MsgHelper.decode(unprocessed.pollFirst());
+            } catch (RuntimeException e) {
+                continue;
+            }
             switch (state) {
                 case DISP_START:
                     if (msg.hasStart() && msg.getSequence() == 1 && msg.getStart().getPacketCount() == getPacketCount()) {
@@ -122,9 +143,6 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
                     if (msg.hasRequest()) {
                         Request req = msg.getRequest();
                         req.getMissedPacketsList().forEach(likelyRecv::clear);
-                    }
-                    if (likelyRecv.cardinality() == getPacketCount()) {
-                        state = State.DISP_END;
                     }
                     return;
                 case DISP_END:
@@ -142,6 +160,11 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
                 case TERMINATED:
                 default:
                     return;
+            }
+        }
+        if (state == State.DISP_DATA) {
+            if (likelyRecv.cardinality() == getPacketCount()) {
+                state = State.DISP_END;
             }
         }
     }

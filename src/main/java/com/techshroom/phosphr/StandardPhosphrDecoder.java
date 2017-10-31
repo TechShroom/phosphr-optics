@@ -1,3 +1,27 @@
+/*
+ * This file is part of phosphr-optics, licensed under the MIT License (MIT).
+ *
+ * Copyright (c) TechShroom Studios <https://techshroom.com>
+ * Copyright (c) contributors
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 package com.techshroom.phosphr;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -23,6 +47,7 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
     private int packetSize;
     private BitSet foundPackets;
     private ByteBuffer data;
+    private int maxIndex;
     private transient byte[] cachedData;
 
     @Override
@@ -31,6 +56,7 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
         try {
             msg = MsgHelper.decode(image);
         } catch (Exception e) {
+            e.printStackTrace();
             return Optional.empty();
         }
         return processMessage(msg).map(MsgHelper::encode);
@@ -43,6 +69,7 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
                 numPackets = msg.getStart().getPacketCount();
                 packetSize = msg.getStart().getPacketSize();
                 foundPackets = new BitSet(numPackets);
+                data = ByteBuffer.allocate(numPackets * packetSize);
                 return Optional.of(msg.toBuilder().setSequence(msg.getSequence() + 1).build());
             case END:
                 // if needed, reply with requests
@@ -96,8 +123,9 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
         }
         foundPackets.set(seq);
         data.position(seq * packetSize);
-        checkState(d.getContent().size() == packetSize, "incorrect size of packet, expected %s got %s", packetSize, d.getContent().size());
+        checkState(d.getContent().size() <= packetSize, "incorrect size of packet, expected %s got %s", packetSize, d.getContent().size());
         data.put(d.getContent().asReadOnlyByteBuffer());
+        maxIndex = Math.max(maxIndex, data.position());
     }
 
     private boolean hasResult() {
@@ -113,11 +141,14 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
             return Optional.empty();
         }
         if (cachedData == null) {
-            data.mark();
+            int pos = data.position();
+            int lim = data.limit();
             data.position(0);
+            data.limit(maxIndex);
             cachedData = new byte[data.remaining()];
             data.get(cachedData);
-            data.reset();
+            data.position(pos);
+            data.limit(lim);
         }
         return Optional.of(cachedData);
     }
