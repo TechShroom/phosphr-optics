@@ -32,7 +32,9 @@ import java.util.Iterator;
 import java.util.Optional;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.ImmutableList;
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.ReaderException;
 import com.google.zxing.qrcode.encoder.ByteMatrix;
 import com.techshroom.protos.Data;
 import com.techshroom.protos.PhosphrMessage;
@@ -55,9 +57,11 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
         PhosphrMessage msg;
         try {
             msg = MsgHelper.decode(image);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof ReaderException) {
+                return Optional.empty();
+            }
+            throw e;
         }
         return processMessage(msg).map(MsgHelper::encode);
     }
@@ -85,15 +89,12 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
             default:
                 throw new IllegalStateException("Unexpected packet: " + msg.getKindCase());
         }
-        if (!hasResult()) {
-            return Optional.of(PhosphrMessage.newBuilder()
-                    .setSequence(0)
-                    .setRequest(Request.newBuilder()
-                            .addAllMissedPackets(this::missingPacketIter)
-                            .build())
-                    .build());
-        }
-        return Optional.empty();
+        return Optional.of(PhosphrMessage.newBuilder()
+                .setSequence(0)
+                .setRequest(Request.newBuilder()
+                        .addAllMissedPackets(this::missingPacketIter)
+                        .build())
+                .build());
     }
 
     private Iterator<Integer> missingPacketIter() {
@@ -103,8 +104,11 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
 
             @Override
             protected Integer computeNext() {
-                while (foundPackets.get(index)) {
+                while (foundPackets.get(index) && index < numPackets) {
                     index++;
+                }
+                if (index >= numPackets) {
+                    return endOfData();
                 }
                 int ret = index;
                 index++;
@@ -121,6 +125,7 @@ public class StandardPhosphrDecoder implements PhosphrDecoder {
             // TODO should we validate?
             return;
         }
+        System.err.println("get packet " + seq + ", missing " + ImmutableList.copyOf(missingPacketIter()));
         foundPackets.set(seq);
         data.position(seq * packetSize);
         checkState(d.getContent().size() <= packetSize, "incorrect size of packet, expected %s got %s", packetSize, d.getContent().size());

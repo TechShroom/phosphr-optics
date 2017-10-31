@@ -32,6 +32,7 @@ import java.util.Iterator;
 
 import com.google.protobuf.ByteString;
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.ReaderException;
 import com.google.zxing.qrcode.encoder.ByteMatrix;
 import com.techshroom.protos.Data;
 import com.techshroom.protos.End;
@@ -116,7 +117,6 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
 
     private ByteMatrix nextDataImage() {
         int next = likelyRecv.nextClearBit(0);
-        likelyRecv.set(next);
         data.position(next * PACKET_SIZE);
         int size = Math.min(PACKET_SIZE, data.remaining());
         return MsgHelper.encode(PhosphrMessage.newBuilder()
@@ -131,35 +131,36 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
             try {
                 msg = MsgHelper.decode(unprocessed.pollFirst());
             } catch (RuntimeException e) {
-                continue;
+                if (e.getCause() instanceof ReaderException) {
+                    continue;
+                }
+                throw e;
             }
             switch (state) {
                 case DISP_START:
                     if (msg.hasStart() && msg.getSequence() == 1 && msg.getStart().getPacketCount() == getPacketCount()) {
                         state = State.DISP_DATA;
                     }
-                    return;
+                    break;
                 case DISP_DATA:
                     if (msg.hasRequest()) {
-                        Request req = msg.getRequest();
-                        req.getMissedPacketsList().forEach(likelyRecv::clear);
+                        processRequestMsg(msg);
                     }
-                    return;
+                    break;
                 case DISP_END:
                     if (msg.hasEnd() && msg.getSequence() == 1) {
                         state = State.TERMINATED;
                     }
                     if (msg.hasRequest()) {
-                        Request req = msg.getRequest();
-                        req.getMissedPacketsList().forEach(likelyRecv::clear);
+                        processRequestMsg(msg);
                         if (likelyRecv.cardinality() < getPacketCount()) {
                             state = State.DISP_DATA;
                         }
                     }
-                    return;
+                    break;
                 case TERMINATED:
                 default:
-                    return;
+                    break;
             }
         }
         if (state == State.DISP_DATA) {
@@ -167,6 +168,12 @@ public class StandardPhosphrEncoder implements PhosphrEncoder {
                 state = State.DISP_END;
             }
         }
+    }
+
+    private void processRequestMsg(PhosphrMessage msg) {
+        Request req = msg.getRequest();
+        likelyRecv.set(0, getPacketCount());
+        req.getMissedPacketsList().forEach(likelyRecv::clear);
     }
 
 }
